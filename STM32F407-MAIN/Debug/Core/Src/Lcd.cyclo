@@ -1,0 +1,11 @@
+Lcd.c:6:6:LCD_Delay	2
+Lcd.c:11:6:LCD_Data_out	5
+Lcd.c:34:6:LCD_Write4bit	1
+Lcd.c:44:6:LCD_WriteCMD	1
+Lcd.c:52:6:LCD_SetCursorPos	3
+Lcd.c:70:6:LCD_Clear	1
+Lcd.c:76:6:LCD_WriteData	1
+Lcd.c:84:6:LCD_Init	1
+Lcd.c:108:6:LCD_PrintChar	1
+Lcd.c:114:6:LCD_PrintString	2
+Lcd.c:123:6:LCD_PrintNum	1
