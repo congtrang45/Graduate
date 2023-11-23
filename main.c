@@ -7,7 +7,7 @@
 #include "stdlib.h"
 #include "stdint.h"
 #include "math.h"
-
+ 
 //Define LCD Pins
 #define LCD_DISPLAY_BLINK   0x0F
 //Declare variables
