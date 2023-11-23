@@ -1,4 +1,4 @@
-//KHAI BAO THU VIEN
+//Declare libraries
 #include "main.h"
 #include "Lcd.h"
 #include "string.h"
@@ -7,34 +7,17 @@
 #include "stdlib.h"
 #include "stdint.h"
 #include "math.h"
-
-//DINH NGHIA CHAN LCD
+ 
+//Define LCD Pins
 #define LCD_DISPLAY_BLINK   0x0F
-//KHAI BAO BIEN
+//Declare variables
 bool CBHT = false, run = false, stop = false, set_mode, ctrl_mode, auto_mode, man_mode;
 volatile int16_t adc1_value, adc2_value;
 volatile float pos1, pos2;
 char receivedData_A[100], receivedData_B[100];
 uint8_t dataIndex_A = 0, dataIndex_B = 0;
 char Rx_indx, Rx_Buffer[50],Rx_data[2];
-volatile float cas_a, cas_b, F1, F2; //Gia tri dau can A,B
-//Thong so PID
-volatile float e1_k, e1_k_1, MV1_pid_k_1, MV1_pid_k;
-volatile float K_c_1 = 0.07;
-volatile float tau_i_1 = 1.75;
-float DesiredForceA = 0;
-volatile float pv1;
-volatile float e2_k, e2_k_1, MV2_pid_k_1, MV2_pid_k;
-volatile float K_c_2 = 0.15;
-volatile float tau_i_2 = 1.75;
-float DesiredForceB = 0;
-volatile float pv2;
-volatile int16_t x1, x2, x3, x4;
-volatile int x1_min = 2048, x2_min = 2048;
-volatile int x1_max = 4095, x2_max = 4095;
-volatile int y1_max = 100, y2_max = 100;
-volatile int y1_min = 0, y2_min = 0;
-volatile float delta_t_1 = 0.5, delta_t_2 = 0.5;
+volatile float cas_a, cas_b, F1, F2; //Value of  weighing indicator A, B
 volatile int16_t  count = 1;
 int count_s, count_b = 0;
 uint32_t cycles = 0;
@@ -64,62 +47,95 @@ static void MX_USART3_UART_Init(void);
 static void MX_ADC2_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_TIM3_Init(void);
-//CAC HAM CHINH
+
+//PID Parameter struct
+typedef struct {
+    volatile float e_k;
+    volatile float e_k_1;
+    volatile float MV_pid_k;
+    volatile float MV_pid_k_1;
+    float K_c;
+    float tau_i;
+    float DesiredForce;
+    volatile float pv;
+    volatile int16_t x;
+    int x_min;
+    int x_max;
+    int y_max;
+    int y_min;
+    float delta_t;
+    uint32_t dac_channel;
+} PIDController;
+
+//Main funtions
 void LCD_Update(void);
 void Mode(void);
 void Set_Start_Stop(void);
 void Tare(void);
 void Up(void);
 void Set_Ctrl(void);
-void PID_Control_A(void);
-void PID_Control_B(void);
+void PID_Control(PIDController *pid);
 void Manual_A(void);
 void Manual_B(void);
 
+PIDController PID_A = {
+    .e_k_1 = 0,
+    .e_k = 0,
+    .MV_pid_k_1 = 0,
+    .MV_pid_k = 0,
+    .K_c = 0.07,
+    .tau_i = 1.75,
+    .DesiredForce = 0,
+    .pv = 0,
+    .x = 0,
+    .x_min = 2048,
+    .x_max = 4095,
+    .y_max = 100,
+    .y_min = 0,
+    .delta_t = 0.5,
+	.dac_channel = DAC_CHANNEL_1
+};
 
-// HAM XU LY PID
-void PID_Control_A(void)
-{
-	e1_k_1 = e1_k;
-	e1_k = DesiredForceA - pv1;
-	MV1_pid_k_1 = MV1_pid_k;
-	MV1_pid_k = MV1_pid_k_1 + K_c_1*(1 + (delta_t_1/tau_i_1))*e1_k - K_c_1*e1_k_1;
-	if (MV1_pid_k > 100.0)
-	{
-		MV1_pid_k = 100.0;
-	}
-	if (MV1_pid_k < 0.0 )
-	{
-		MV1_pid_k = 0.0;
-	}
+PIDController PID_B = {
+    .e_k_1 = 0,
+    .e_k = 0,
+    .MV_pid_k_1 = 0,
+    .MV_pid_k = 0,
+    .K_c = 0.15,
+    .tau_i = 1.75,
+    .DesiredForce = 0,
+    .pv = 0,
+    .x = 0,
+    .x_min = 2048,
+    .x_max = 4095,
+    .y_max = 100,
+    .y_min = 0,
+    .delta_t = 0.5,
+	.dac_channel = DAC_CHANNEL_2
+};
 
-	x1 = (int16_t)((( MV1_pid_k-y1_min)/(y1_max-y1_min))*(x1_max-x1_min)+ x1_min);
+// PID Function
+void PID_Control(PIDController *pid) {
+    pid->e_k_1 = pid->e_k;
+    pid->e_k = pid->DesiredForce - pid->pv;
+    pid->MV_pid_k_1 = pid->MV_pid_k;
+    pid->MV_pid_k = pid->MV_pid_k_1 + pid->K_c * (1 + (pid->delta_t / pid->tau_i)) * pid->e_k - pid->K_c * pid->e_k_1;
 
-	HAL_DAC_SetValue(&hdac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, x1);
-	HAL_Delay(500);
+    if (pid->MV_pid_k > 100.0) {
+        pid->MV_pid_k = 100.0;
+    }
+    if (pid->MV_pid_k < 0.0) {
+        pid->MV_pid_k = 0.0;
+    }
+
+    pid->x = (int16_t)(((pid->MV_pid_k - pid->y_min) / (pid->y_max - pid->y_min)) * (pid->x_max - pid->x_min) + pid->x_min);
+
+    // Assuming hdac is a global variable accessible here
+    HAL_DAC_SetValue(&hdac, pid->dac_channel, DAC_ALIGN_12B_R, pid->x);
+    HAL_Delay(500);
 }
 
-void PID_Control_B(void)
-{
-	e2_k_1 = e2_k;
-	e2_k = DesiredForceB-pv2;
-	MV2_pid_k_1 = MV2_pid_k;
-	MV2_pid_k = MV2_pid_k_1 + K_c_2*(1 + (delta_t_2/tau_i_2))*e2_k - K_c_2*e2_k_1;
-	if (MV2_pid_k > 100.0)
-	{
-		MV2_pid_k = 100.0;
-	}
-	if (MV2_pid_k < 0.0 )
-	{
-		MV2_pid_k = 0.0;
-	}
-
-	x2 = (int16_t)((( MV2_pid_k-y2_min)/(y2_max-y2_min))*(x2_max-x2_min) + x2_min);
-
-	HAL_DAC_SetValue(&hdac, DAC_CHANNEL_2, DAC_ALIGN_12B_R, x2);
-	HAL_Delay(500);
-}
-//CAC HAM XU LY NUT NHAN
+// Button handling functions
 void Set_Ctrl(void)
 {
 	if (HAL_GPIO_ReadPin(GPIOE, DI4_Pin) == 0)
@@ -159,24 +175,24 @@ void Mode(void)
 					if (mode > 5) mode = 1;
 					if (mode == 1)
 					{
-						value = DesiredForceA;
+						value = PID_A.DesiredForce;
 						LCD_Clear();
 						LCD_Update();
 						LCD_PrintString(0, 0, "Force A");
-						if (DesiredForceA != 0)
+						if (PID_A.DesiredForce != 0)
 						{
-							LCD_PrintNum( 1, 10, DesiredForceA);
+							LCD_PrintNum( 1, 10, PID_A.DesiredForce);
 						}
 					}
 					else if (mode == 2)
 					{
-						value = DesiredForceB;
+						value = PID_B.DesiredForce;
 						LCD_Clear();
 						LCD_Update();
 						LCD_PrintString(0, 0, "Force B");
-						if (DesiredForceB != 0)
+						if (PID_B.DesiredForce != 0)
 						{
-							LCD_PrintNum( 1, 10, DesiredForceB);
+							LCD_PrintNum( 1, 10, PID_B.DesiredForce);
 						}
 					}
 					else if (mode == 3)
@@ -253,13 +269,13 @@ void Set_Start_Stop(void)
 				switch(mode)
 				{
 				case 1:
-					DesiredForceA = value;
-					printf("%.2f""d\r\n", DesiredForceA);
+					PID_A.DesiredForce = value;
+					printf("%.2f""d\r\n", PID_A.DesiredForce);
 					LCD_PrintString(0, 14, "OK");
 					break;
 				case 2:
-					DesiredForceB = value;
-					printf("%.2f""e\r\n", DesiredForceB);
+					PID_B.DesiredForce = value;
+					printf("%.2f""e\r\n", PID_B.DesiredForce);
 					LCD_PrintString(0, 14, "OK");
 					break;
 				case 3:
@@ -355,7 +371,7 @@ void Manual_A(void)
 						{
 							LCD_PrintString(1, 10, "A+");
 						}
-						else if ((count_s == 2) && (pv2 < DesiredForceB))
+						else if ((count_s == 2) && (PID_B.pv < PID_B.DesiredForce))
 						{
 							LCD_PrintString(1, 10, "A-");
 						}
@@ -413,7 +429,7 @@ void Manual_B(void)
 					{
 						count_b++;
 						if (count_b > 2) count_b = 1;
-						if ((count_b == 1) && (pv1 >= DesiredForceA))
+						if ((count_b == 1) && (PID_A.pv >= PID_A.DesiredForce))
 						{
 							LCD_PrintString(1, 14, "B+");
 						}
@@ -456,7 +472,7 @@ void LCD_Update(void)
 }
 
 
-//GUI DU LIEU SANG F205
+//Transfer data to F205
 #ifdef __GNUC__
 	#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 #else
@@ -479,7 +495,7 @@ void ProcessData_A()
 	strtok(NULL, ",");
 	cas_a = atof(strtok(NULL, ","));
 	F1 = cas_a*9.6545;
-	pv1 = F1;
+	PID_A.pv = F1;
 	memset(receivedData_A, 0, sizeof(receivedData_A));
 	dataIndex_A = 0;
 }
@@ -493,16 +509,17 @@ void ProcessData_B()
 	strtok(NULL, ",");
 	cas_b = atof(strtok(NULL, ","));
 	F2 = cas_b*9.6545;
-	pv2 = F2;
+	PID_B.pv = F2;
 	memset(receivedData_B, 0, sizeof(receivedData_B));
 	dataIndex_B = 0;
 }
 
 
-//NHAN DU LIEU TU DAU CAN
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-	uint8_t i;
+		uint8_t i;
+		//Receive data from F205
 		if(huart->Instance == USART1) //uart1
 		{
 			if(Rx_indx==0) {for (i=0;i<50;i++) Rx_Buffer[i] = 0;}
@@ -527,12 +544,12 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 					LCD_PrintString(1, 0, "State:   RUNNING");
 					break;
 				case 'a':
-					DesiredForceA = atof(Rx_Buffer);
+					PID_A.DesiredForce = atof(Rx_Buffer);
 					memset(Rx_Buffer, 0, sizeof(Rx_Buffer));
 					Rx_indx = 0;
 					break;
 				case 'b':
-					DesiredForceB = atof(Rx_Buffer);
+					PID_B.DesiredForce = atof(Rx_Buffer);
 					memset(Rx_Buffer, 0, sizeof(Rx_Buffer));
 					Rx_indx = 0;
 					break;
@@ -547,6 +564,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 			HAL_UART_Receive_IT(&huart1,(uint8_t*)Rx_data,1);
 		}
 
+		//Receive data from weighing indicator
 		if (huart->Instance == huart3.Instance) //Check Port
 		{
 			  if (strncmp(&receivedData_A[dataIndex_A - 2], "\r\n", 2) == 0)
@@ -575,7 +593,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 	}
 
 
-//DOC DU LIEU ANALOG (THUOC DIEN TRO)
+//Read analog data (Linear position sensor)
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
 	if (hadc->Instance == hadc1.Instance) // check interrupt of ADC 1
@@ -584,7 +602,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		pos1 = 750.0 - (float)(adc1_value*750)/4095;
 	}
 
-	if (hadc->Instance == hadc2.Instance) // check interrupt of ADC 1
+	if (hadc->Instance == hadc2.Instance) // check interrupt of ADC 2
 	{
 		adc2_value = HAL_ADC_GetValue(&hadc2);
 		pos2 = 600.0 - (float)(adc2_value*600)/4095;
@@ -595,13 +613,13 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	if(htim->Instance==htim3.Instance) //TIMER3 GUI DU LIEU DEN STM32F205
+	if(htim->Instance==htim3.Instance) //TIMER3 transfer data to STM32F205
 	{
 		printf("%.2f""a\r\n", F1);
 		printf("%.2f""b\r\n", F2);
 		printf("%d""c\r\n", count);
-		printf("%.2f""d\r\n", DesiredForceA);
-		printf("%.2f""e\r\n", DesiredForceB);
+		printf("%.2f""d\r\n", PID_A.DesiredForce);
+		printf("%.2f""e\r\n", PID_B.DesiredForce);
 		printf("%d""f\r\n", cycles);
 		printf("%d""k\r\n", run);
 		printf("q%.2f\r\n", F1);
@@ -611,7 +629,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		printf("u%d\r\n", count);
 	}
 
-	if(htim->Instance==htim4.Instance) //TIMER4 HIEN THI DEN BAO
+	if(htim->Instance==htim4.Instance) //TIMER4 indicator light display
 	{
 		  if (run == 1)
 		  {
@@ -625,15 +643,15 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		  }
 	}
 }
-//NGAT NGOAI CHO NUT NHAN STOP VA CAM BIEN HANH TRINH
+//External interrupt for stop button and cruise sensor
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	if (GPIO_Pin == DI6_Pin) //CBHT
+	if (GPIO_Pin == DI6_Pin) //cruise sensor
 	{
 		CBHT = 1;
 		run = 0;
 	}
-	else if (GPIO_Pin == DI1_Pin) //NUT NHAN STOP
+	else if (GPIO_Pin == DI1_Pin) //stop button
 	{
 		run = 0;
 		count = 0;
@@ -687,14 +705,14 @@ int main(void)
 			{
 			  while (count < cycles)
 				{
-					while (pv1 < DesiredForceA)
+					while (PID_A.pv < PID_A.DesiredForce)
 					{
-						PID_Control_A();
+						PID_Control(&PID_A);
 						if (run == 0) break;
 					}
-					while (pv2 < DesiredForceB)
+					while (PID_B.pv < PID_B.DesiredForce)
 					{
-						PID_Control_B();
+						PID_Control(&PID_B);
 						if (run == 0) break;
 					}
 					while (pos2 > 290.1)
@@ -732,17 +750,17 @@ int main(void)
 			 Manual_B();
 			if (count_s == 1)
 			{
-				PID_Control_A();
+				PID_Control(&PID_A);
 				Manual_A();
 				Manual_B();
 			}
-			else if ((count_s == 2) && (pv2 < DesiredForceB))
+			else if ((count_s == 2) && (PID_B.pv < PID_B.DesiredForce))
 			{
 				HAL_DAC_SetValue(&hdac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 1638);
 			}
-			if ((count_b == 1) && (pv1 >= DesiredForceA))
+			if ((count_b == 1) && (PID_A.pv >= PID_A.DesiredForce))
 			{
-				PID_Control_B();
+				PID_Control(&PID_B);
 				Manual_B();
 			}
 			else if (count_b == 2)
